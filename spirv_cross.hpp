@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2018 ARM Limited
+ * Copyright 2015-2019 Arm Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -178,13 +178,22 @@ public:
 	const SPIRType &get_type_from_variable(uint32_t id) const;
 
 	// Gets the id of SPIR-V type underlying the given type_id, which might be a pointer.
-	uint32_t get_non_pointer_type_id(uint32_t type_id) const;
+	uint32_t get_pointee_type_id(uint32_t type_id) const;
 
 	// Gets the SPIR-V type underlying the given type, which might be a pointer.
-	const SPIRType &get_non_pointer_type(const SPIRType &type) const;
+	const SPIRType &get_pointee_type(const SPIRType &type) const;
 
 	// Gets the SPIR-V type underlying the given type_id, which might be a pointer.
-	const SPIRType &get_non_pointer_type(uint32_t type_id) const;
+	const SPIRType &get_pointee_type(uint32_t type_id) const;
+
+	// Gets the ID of the SPIR-V type underlying a variable.
+	uint32_t get_variable_data_type_id(const SPIRVariable &var) const;
+
+	// Gets the SPIR-V type underlying a variable.
+	SPIRType &get_variable_data_type(const SPIRVariable &var);
+
+	// Gets the SPIR-V type underlying a variable.
+	const SPIRType &get_variable_data_type(const SPIRVariable &var) const;
 
 	// Returns if the given type refers to a sampled image.
 	bool is_sampled_image_type(const SPIRType &type);
@@ -552,7 +561,8 @@ protected:
 	template <typename T, typename... P>
 	T &set(uint32_t id, P &&... args)
 	{
-		auto &var = variant_set<T>(ir.ids.at(id), std::forward<P>(args)...);
+		ir.add_typed_id(static_cast<Types>(T::type), id);
+		auto &var = variant_set<T>(ir.ids[id], std::forward<P>(args)...);
 		var.self = id;
 		return var;
 	}
@@ -560,13 +570,13 @@ protected:
 	template <typename T>
 	T &get(uint32_t id)
 	{
-		return variant_get<T>(ir.ids.at(id));
+		return variant_get<T>(ir.ids[id]);
 	}
 
 	template <typename T>
 	T *maybe_get(uint32_t id)
 	{
-		if (ir.ids.at(id).get_type() == T::type)
+		if (ir.ids[id].get_type() == static_cast<Types>(T::type))
 			return &get<T>(id);
 		else
 			return nullptr;
@@ -575,13 +585,13 @@ protected:
 	template <typename T>
 	const T &get(uint32_t id) const
 	{
-		return variant_get<T>(ir.ids.at(id));
+		return variant_get<T>(ir.ids[id]);
 	}
 
 	template <typename T>
 	const T *maybe_get(uint32_t id) const
 	{
-		if (ir.ids.at(id).get_type() == T::type)
+		if (ir.ids[id].get_type() == static_cast<Types>(T::type))
 			return &get<T>(id);
 		else
 			return nullptr;
@@ -649,6 +659,12 @@ protected:
 
 	void update_name_cache(std::unordered_set<std::string> &cache, std::string &name);
 
+	// A variant which takes two sets of names. The secondary is only used to verify there are no collisions,
+	// but the set is not updated when we have found a new name.
+	// Used primarily when adding block interface names.
+	void update_name_cache(std::unordered_set<std::string> &cache_primary,
+	                       const std::unordered_set<std::string> &cache_secondary, std::string &name);
+
 	bool function_is_pure(const SPIRFunction &func);
 	bool block_is_pure(const SPIRBlock &block);
 	bool block_is_outside_flow_control_from_block(const SPIRBlock &from, const SPIRBlock &to);
@@ -663,6 +679,8 @@ protected:
 
 	bool types_are_logically_equivalent(const SPIRType &a, const SPIRType &b) const;
 	void inherit_expression_dependencies(uint32_t dst, uint32_t source);
+	void add_implied_read_expression(SPIRExpression &e, uint32_t source);
+	void add_implied_read_expression(SPIRAccessChain &e, uint32_t source);
 
 	// For proper multiple entry point support, allow querying if an Input or Output
 	// variable is part of that entry points interface.
